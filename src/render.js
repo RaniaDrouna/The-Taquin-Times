@@ -38,15 +38,34 @@ function thumb(state) {
   return el;
 }
 
+/* ---------- empty-state placeholders ---------- */
+
+const ghostBoard = `<div class="tq-ghostboard" aria-hidden="true">${'<i></i>'.repeat(9)}</div>`;
+
+const OPEN_HINT = {
+  play: 'A* hasn’t started. Press SOLVE IT and boards line up here, lowest f first.',
+  ready: 'Press NEXT. The starting board lands here first.',
+};
+const CLOSED_HINT = {
+  play: 'Boards A* has finished with will pile up here.',
+  ready: 'Nothing checked yet.',
+};
+
+/* ---------- OPEN ---------- */
+
 let seenOpen = new Set();
 export function renderOpenList(container, nodes = [], activeState = null, phase = '', idle = false) {
   if (!container) return;
   container.innerHTML = '';
+
   if (!nodes.length) {
     seenOpen = new Set();
-    container.innerHTML = `<p class="tq-empty">${idle ? 'Nothing here yet. Once A* starts, boards worth trying line up here, lowest f first.' : 'Empty.'}</p>`;
+    if (!idle) { container.innerHTML = '<p class="tq-hint">Empty right now.</p>'; return; }
+    const ghost = `<li class="tq-slip tq-slip--ghost">${ghostBoard}<div class="tq-slip__body"><span class="tq-ghostbar"></span><span class="tq-ghostbar tq-ghostbar--short"></span></div></li>`;
+    container.innerHTML = `<ol class="tq-slips tq-slips--ghost" aria-hidden="true">${ghost}${ghost}</ol><p class="tq-hint">${OPEN_HINT[idle]}</p>`;
     return;
   }
+
   const MAX = 6;
   const list = document.createElement('ol');
   list.className = 'tq-slips';
@@ -67,15 +86,20 @@ export function renderOpenList(container, nodes = [], activeState = null, phase 
   seenOpen = new Set(nodes.map((n) => n.state));
 }
 
+/* ---------- CLOSED ---------- */
+
 let seenClosed = new Set();
 export function renderClosedList(container, nodes = [], idle = false) {
   if (!container) return;
   container.innerHTML = '';
+
   if (!nodes.length) {
     seenClosed = new Set();
-    container.innerHTML = `<p class="tq-empty">${idle ? 'Nothing checked yet. Boards A* has finished with move here, so it never repeats work.' : 'Nothing yet.'}</p>`;
+    const ghost = `<li class="tq-chip tq-chip--ghost">${ghostBoard}</li>`;
+    container.innerHTML = `<ul class="tq-chips tq-chips--ghost" aria-hidden="true">${ghost.repeat(4)}</ul><p class="tq-hint">${CLOSED_HINT[idle || 'ready']}</p>`;
     return;
   }
+
   const MAX = 24;
   const list = document.createElement('ul');
   list.className = 'tq-chips';
@@ -92,14 +116,17 @@ export function renderClosedList(container, nodes = [], idle = false) {
   seenClosed = new Set(nodes.map((n) => n.state));
 }
 
+/* ---------- stats ---------- */
+
 export function renderStats(container, stats = {}, solved = false) {
   if (!container) return;
-  const dash = (v) => (v === null || v === undefined ? '—' : v);
   container.innerHTML = `
-    <span><b>${dash(stats.checked)}</b> boards checked</span>
-    <span><b>${dash(stats.waiting)}</b> waiting</span>
-    ${solved ? `<span>solution: <b>${dash(stats.depth)}</b> moves</span><span><b>${stats.time ? `${Number(stats.time).toFixed(1)}ms` : '—'}</b></span><span class="tq-stamp-inline">SOLVED</span>` : ''}`;
+    <span><b>${stats.checked ?? 0}</b> checked</span>
+    <span><b>${stats.waiting ?? 0}</b> waiting</span>
+    ${solved ? `<span class="tq-stat--win"><b>${stats.depth ?? '?'}</b> moves to solve</span>` : ''}`;
 }
+
+/* ---------- h(n) explainer ---------- */
 
 export function updateHeuristicNote(container, heuristic, currentState, targetState, event = null, distancesVisible = true) {
   if (!container || !heuristic) return;

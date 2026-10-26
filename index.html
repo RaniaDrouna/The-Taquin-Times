@@ -1,116 +1,133 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f4efe4" />
-    <meta name="description" content="Taquin A* — a tactile zine interface for learning search by watching the queue." />
-    <title>TAQUIN — A* by hand</title>
-    <link rel="stylesheet" href="/src/styles.css" />
-    <link rel="stylesheet" href="/src/ui.css" />
-  </head>
-  <body>
-    <section class="splash-screen" id="splash-screen" aria-label="Taquin introduction">
-      <div class="splash-card">
-        <div class="splash-mark" aria-hidden="true">8</div>
-        <p class="splash-kicker">A* / 8-PUZZLE / LAB</p>
-        <h1>A* 8-PUZZLE</h1>
-        <p class="splash-copy">Move tiles. Watch the search run.</p>
-        <button class="splash-start" id="start-app" type="button">START <span>↗</span></button>
-        <small>8-puzzle / A*</small>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#f4efe4" />
+  <meta name="description" content="Taquin A* — a tactile zine interface for learning search by watching the queue." />
+  <title>TAQUIN — A* by hand</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+  <link rel="stylesheet" href="/src/ui.css" />
+</head>
+
+<body>
+  <section class="splash-screen" id="splash-screen" aria-label="Taquin introduction">
+    <div class="splash-card">
+      <div class="splash-mark" aria-hidden="true">8</div>
+      <p class="splash-kicker">A* / 8-PUZZLE / LAB</p>
+      <h1>A* 8-PUZZLE</h1>
+      <p class="splash-copy">Move tiles. Watch the search run.</p>
+      <button class="splash-start" id="start-app" type="button">START <span>↗</span></button>
+      <small>8-puzzle / A*</small>
+    </div>
+  </section>
+  <svg class="paper-filters" aria-hidden="true">
+    <filter id="ink-filter">
+      <feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" />
+      <feDisplacementMap in="SourceGraphic" scale="1.8" />
+    </filter>
+  </svg>
+
+  <div class="app-shell tq-app" id="app" data-mode="play">
+    <header class="tq-masthead">
+      <div class="tq-masthead__row">
+        <span>Vol. 8 · The A* Edition</span>
+        <span class="tq-hide-sm">Slide. Search. Solve.</span>
+        <label class="tq-sound"><input id="sound-toggle" type="checkbox" checked /> sound</label>
       </div>
+      <p class="tq-masthead__title">THE TAQUIN TIMES</p>
+    </header>
+
+    <section class="tq-hero" aria-live="polite">
+      <h1 id="headline">Scramble the puzzle.</h1>
+      <p class="tq-narration" id="narration"></p>
     </section>
-    <svg class="paper-filters" aria-hidden="true">
-      <filter id="ink-filter"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" /><feDisplacementMap in="SourceGraphic" scale="1.8" /></filter>
-    </svg>
 
-    <div class="app-shell tq-app" id="app" data-mode="play">
-      <header class="tq-masthead">
-        <div class="tq-masthead__row">
-          <span>Vol. 8 · The A* Edition</span>
-          <span class="tq-hide-sm">Slide. Search. Solve.</span>
-          <label class="tq-sound"><input id="sound-toggle" type="checkbox" checked /> sound</label>
+    <main class="tq-main">
+      <section class="tq-play" aria-label="Puzzle">
+        <div class="tq-boardrow">
+          <div class="tq-boardwrap">
+            <div class="tq-board" id="main-board" tabindex="0" aria-label="Interactive puzzle board"></div>
+          </div>
+          <aside class="tq-goal" aria-label="Goal">
+            <span class="tq-goal__tape" aria-hidden="true"></span>
+            <h2>THE GOAL</h2>
+            <div class="tq-board" id="target-board"></div>
+            <p>Match this.</p>
+            <p class="tq-goal__moves">your moves: <b id="move-count">0</b></p>
+          </aside>
         </div>
-        <p class="tq-masthead__title">THE TAQUIN TIMES</p>
-      </header>
 
-      <section class="tq-hero" aria-live="polite">
-        <h1 id="headline">Scramble the puzzle.</h1>
-        <p class="tq-narration" id="narration"></p>
+        <div class="tq-controls tq-only-play">
+          <button class="tq-btn" id="shuffle-button" type="button">⤮ Shuffle</button>
+          <button class="tq-btn" id="reset-button" type="button">Reset</button>
+          <button class="tq-btn tq-btn--primary" id="run-button" type="button">Solve it <kbd>↵</kbd></button>
+        </div>
+        <div class="tq-hrow tq-only-play">
+          <label for="heuristic-select">A* guesses the distance using:</label>
+          <select class="tq-select" id="heuristic-select">
+            <option value="manhattan">Manhattan distance</option>
+            <option value="misplaced">Misplaced tiles</option>
+          </select>
+        </div>
+
+        <div class="tq-controls tq-only-watch">
+          <button class="tq-btn" id="back-step-button" type="button" disabled>◀ Back</button>
+          <button class="tq-btn tq-btn--primary" id="step-button" type="button" title="Run one full A* expansion">Next
+            ▶</button>
+          <button class="tq-btn" id="auto-button" type="button"><span id="auto-icon">▶</span> <span
+              id="auto-label">Play</span></button>
+          <button class="tq-btn tq-btn--ghost" id="micro-step-button" type="button"
+            title="Advance one phase at a time">1 phase</button>
+          <button class="tq-btn tq-btn--ghost" id="edit-button" type="button">✎ Edit board</button>
+        </div>
+        <div class="tq-hrow tq-only-watch">
+          <label class="tq-pace">Pace <input id="speed-slider" type="range" min="1" max="5" value="3" /> <span
+              id="speed-label">3×</span></label>
+        </div>
+
+        <ol class="tq-steps tq-only-watch" id="pseudocode" aria-label="How A* thinks">
+          <li data-pseudo="pop">pick lowest f</li>
+          <li data-pseudo="expand">make children</li>
+          <li data-pseudo="score">score g + h</li>
+          <li data-pseudo="insert">file the best</li>
+          <li data-pseudo="goal">goal?</li>
+        </ol>
+
+        <div class="tq-considering tq-only-watch">
+          <h3>A* is looking at</h3>
+          <div class="tq-children" id="child-cluster"></div>
+        </div>
+
+        <details class="tq-details">
+          <summary>What do g, h and f mean?</summary>
+          <p><b>g</b> = moves made so far to reach a board. <b>h</b> = a guess of how many moves are still needed. <b>f
+              = g + h</b> = how promising a board looks. A* always works on the board with the lowest f next.</p>
+          <div class="tq-hnote" id="heuristic-note"></div>
+        </details>
       </section>
 
-      <main class="tq-main">
-        <section class="tq-play" aria-label="Puzzle">
-          <div class="tq-boardrow">
-            <div class="tq-boardwrap">
-              <div class="tq-board" id="main-board" tabindex="0" aria-label="Interactive puzzle board"></div>
-            </div>
-            <aside class="tq-goal" aria-label="Goal">
-              <span class="tq-goal__tape" aria-hidden="true"></span>
-              <h2>THE GOAL</h2>
-              <div class="tq-board" id="target-board"></div>
-              <p>Match this.</p>
-              <p class="tq-goal__moves">your moves: <b id="move-count">0</b></p>
-            </aside>
-          </div>
-
-          <div class="tq-controls tq-only-play">
-            <button class="tq-btn" id="shuffle-button" type="button">⤮ Shuffle</button>
-            <button class="tq-btn" id="reset-button" type="button">Reset</button>
-            <button class="tq-btn tq-btn--primary" id="run-button" type="button">Solve it <kbd>↵</kbd></button>
-          </div>
-          <div class="tq-hrow tq-only-play">
-            <label for="heuristic-select">A* guesses the distance using:</label>
-            <select class="tq-select" id="heuristic-select">
-              <option value="manhattan">Manhattan distance</option>
-              <option value="misplaced">Misplaced tiles</option>
-            </select>
-          </div>
-
-          <div class="tq-controls tq-only-watch">
-            <button class="tq-btn" id="back-step-button" type="button" disabled>◀ Back</button>
-            <button class="tq-btn tq-btn--primary" id="step-button" type="button" title="Run one full A* expansion">Next ▶</button>
-            <button class="tq-btn" id="auto-button" type="button"><span id="auto-icon">▶</span> <span id="auto-label">Play</span></button>
-            <button class="tq-btn tq-btn--ghost" id="micro-step-button" type="button" title="Advance one phase at a time">1 phase</button>
-            <button class="tq-btn tq-btn--ghost" id="edit-button" type="button">✎ Edit board</button>
-          </div>
-          <div class="tq-hrow tq-only-watch">
-            <label class="tq-pace">Pace <input id="speed-slider" type="range" min="1" max="5" value="3" /> <span id="speed-label">3×</span></label>
-          </div>
-
-          <ol class="tq-steps tq-only-watch" id="pseudocode" aria-label="How A* thinks">
-            <li data-pseudo="pop">pick lowest f</li>
-            <li data-pseudo="expand">make children</li>
-            <li data-pseudo="score">score g + h</li>
-            <li data-pseudo="insert">file the best</li>
-            <li data-pseudo="goal">goal?</li>
-          </ol>
-
-          <div class="tq-considering tq-only-watch">
-            <h3>A* is looking at</h3>
-            <div class="tq-children" id="child-cluster"></div>
-          </div>
-
-          <details class="tq-details">
-            <summary>What do g, h and f mean?</summary>
-            <p><b>g</b> = moves made so far to reach a board. <b>h</b> = a guess of how many moves are still needed. <b>f = g + h</b> = how promising a board looks. A* always works on the board with the lowest f next.</p>
-            <div class="tq-hnote" id="heuristic-note"></div>
-          </details>
+      <aside class="tq-ledger" aria-label="A* search lists">
+        <div class="tq-stats tq-only-watch" id="stats" hidden></div>
+        <section class="tq-sheet">
+          <header>
+            <h2>OPEN</h2><span class="tq-count" id="open-count">empty</span>
+            <p>The to-do list. A* always takes the lowest f first.</p>
+          </header>
+          <div id="open-list"></div>
         </section>
+        <section class="tq-sheet">
+          <header>
+            <h2>CLOSED</h2><span class="tq-count" id="closed-count">empty</span>
+            <p>Boards A* has already checked. It never repeats them.</p>
+          </header>
+          <div id="closed-list"></div>
+        </section>
+      </aside>
+    </main>
+  </div>
+  <script type="module" src="/src/app.js"></script>
+</body>
 
-        <aside class="tq-ledger" aria-label="A* search lists">
-          <div class="tq-stats tq-only-watch" id="stats"></div>
-          <section class="tq-sheet">
-            <header><h2>OPEN</h2><p>The to-do list. Lowest f goes first.</p></header>
-            <div id="open-list"></div>
-          </section>
-          <section class="tq-sheet">
-            <header><h2>CLOSED</h2><p>Boards already checked. Never repeated.</p></header>
-            <div id="closed-list"></div>
-          </section>
-        </aside>
-      </main>
-    </div>
-    <script type="module" src="/src/app.js"></script>
-  </body>
 </html>

@@ -27,6 +27,7 @@ let dragState = null;
 let notice = null; // transient warning shown in the narration line
 
 const refs = {
+  openCount: $('#open-count'), closedCount: $('#closed-count'),
   headline: $('#headline'), narration: $('#narration'),
   heuristic: $('#heuristic-select'), speed: $('#speed-slider'), speedLabel: $('#speed-label'),
   run: $('#run-button'), shuffle: $('#shuffle-button'), reset: $('#reset-button'), edit: $('#edit-button'),
@@ -48,7 +49,7 @@ function copy(event) {
       ? ['Scramble the puzzle.', 'Slide a few tiles out of place (click, drag, or use the arrow keys), or hit SHUFFLE. Yellow tiles can slide. Then let A* find the way back.']
       : ['Now let A* solve it.', 'Press SOLVE IT. A* plans a shortest route back to the goal, and you’ll watch its to-do list (OPEN) and its checked list (CLOSED) change step by step.'];
   }
-  if (!event) return ['A* is ready.', 'Press NEXT to see its first decision, or PLAY to watch it work on its own.'];
+  if (!event) return ['Let’s watch A* think.', 'It hasn’t made a move yet. Press NEXT to see its first decision, or PLAY to let it run on its own.'];
   const titles = {
     pop: 'Pick the most promising board',
     expand: 'Look at every possible move',
@@ -93,22 +94,35 @@ function render() {
   app.dataset.mode = result ? 'watch' : 'play';
   if (solved) app.dataset.solved = ''; else delete app.dataset.solved;
 
+  // boards
   renderBoard(mainBoard, shown, { interactive: !result && !loading, distances: distancesVisible || scorePhase, targetState });
   renderBoard(targetBoard, targetState, { mini: true, target: true });
-  renderOpenList(refs.open, event?.open || [], event?.expanded?.state, event?.phase || '', !event);
-  renderClosedList(refs.closed, event?.closed || [], !event);
+
+  // OPEN / CLOSED (idle = which empty-state hint to show before A* has acted)
+  const idle = event ? false : result ? 'ready' : 'play';
+  renderOpenList(refs.open, event?.open || [], event?.expanded?.state, event?.phase || '', idle);
+  renderClosedList(refs.closed, event?.closed || [], idle);
+  refs.openCount.textContent = event ? `${event.open?.length ?? 0} waiting` : 'empty';
+  refs.closedCount.textContent = event ? `${event.closed?.length ?? 0} checked` : 'empty';
+
+  // stats strip (hidden until A* makes its first decision)
+  refs.stats.hidden = !event;
   renderStats(refs.stats, event
-    ? { checked: event.closed?.length ?? 0, waiting: event.open?.length ?? 0, depth: result?.stats?.depth, time: result?.stats?.time }
+    ? { checked: event.closed?.length ?? 0, waiting: event.open?.length ?? 0, depth: result?.stats?.depth }
     : {}, solved);
+
+  // children, explainer, stepper
   renderChildren(event);
   updateHeuristicNote(refs.note, HEURISTICS[heuristicName], shown, targetState, event, distancesVisible || scorePhase);
   highlightPseudo(event?.phase || '');
 
+  // headline + sticky-note narration
   const [headline, line] = copy(event);
   refs.headline.textContent = headline;
   refs.narration.textContent = notice?.text ?? line;
   refs.narration.classList.toggle('is-warn', Boolean(notice));
 
+  // controls
   refs.moveCount.textContent = String(movesMade);
   refs.speedLabel.textContent = `${speed}×`;
   refs.autoLabel.textContent = timer ? 'Pause' : 'Play';
@@ -118,6 +132,7 @@ function render() {
   refs.run.title = isAtGoal() ? 'Scramble the board first.' : '';
   [refs.step, refs.micro, refs.auto, refs.reset, refs.shuffle, refs.edit].forEach((button) => { button.disabled = loading; });
 
+  // solved state
   document.body.classList.toggle('is-solved', solved);
   if (solved && !announcedSolved) { announcedSolved = true; inkStampSound(); }
 }
