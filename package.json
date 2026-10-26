@@ -1,0 +1,12 @@
+{
+  "name": "taquin-search-play",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "backend": "python3 -m uvicorn backend.app:app --host 0.0.0.0 --port 8000",
+    "test:backend": "python3 -m pytest backend/tests -q",
+    "check": "node --check server.mjs && node --check src/solver.js && node --check src/render.js && node --check src/app.js"
+  }
+}
