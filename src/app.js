@@ -1,8 +1,9 @@
 import { GOAL_STATE, HEURISTICS, getNeighbors } from './solver.js';
 import { solvePuzzle, toReplayResult } from './api.js';
-import { renderBoard, renderClosedList, renderOpenList, renderStats, renderStepLog, updateHeuristicNote } from './render.js';
+import { renderBoard, renderClosedList, renderOpenList, renderStats, updateHeuristicNote, moveLabel } from './render.js';
 
 const $ = (selector) => document.querySelector(selector);
+const app = $('#app');
 const mainBoard = $('#main-board');
 const targetBoard = $('#target-board');
 const splash = $('#splash-screen');
@@ -23,29 +24,58 @@ let audioContext = null;
 let announcedSolved = false;
 let loading = false;
 let dragState = null;
-let dragHandled = false;
+let notice = null; // transient warning shown in the narration line
 
 const refs = {
-  status: $('#status-text'), heuristic: $('#heuristic-select'), speed: $('#speed-slider'), speedLabel: $('#speed-label'), run: $('#run-button'), solveNote: $('#solve-note'), step: $('#step-button'), micro: $('#micro-step-button'), auto: $('#auto-button'), pause: $('#pause-button'), reset: $('#reset-button'), back: $('#back-step-button'), distances: $('#distance-toggle'), currentNode: $('#current-node-id'), moveCaption: $('#move-caption'), moveCount: $('#move-count'), stats: $('#stats'), open: $('#open-list'), closed: $('#closed-list'), log: $('#step-log'), note: $('#heuristic-note'), children: $('#child-cluster'), pseudocode: $('#pseudocode'), activeRing: $('.active-ring'),
+  headline: $('#headline'), narration: $('#narration'),
+  heuristic: $('#heuristic-select'), speed: $('#speed-slider'), speedLabel: $('#speed-label'),
+  run: $('#run-button'), shuffle: $('#shuffle-button'), reset: $('#reset-button'), edit: $('#edit-button'),
+  step: $('#step-button'), micro: $('#micro-step-button'), back: $('#back-step-button'),
+  auto: $('#auto-button'), autoLabel: $('#auto-label'), autoIcon: $('#auto-icon'),
+  moveCount: $('#move-count'), stats: $('#stats'), open: $('#open-list'), closed: $('#closed-list'),
+  note: $('#heuristic-note'), children: $('#child-cluster'), pseudocode: $('#pseudocode'),
+  soundToggle: $('#sound-toggle'),
 };
 
 function currentEvent() { return result?.events?.[eventIndex] || null; }
 function boardForDisplay() { return currentEvent()?.expanded?.state || currentState; }
 function isAtGoal() { return currentState === targetState; }
 
+function copy(event) {
+  if (loading) return ['Thinking…', 'Sending your board to the A* solver.'];
+  if (!result) {
+    return isAtGoal()
+      ? ['Scramble the puzzle.', 'Slide a few tiles out of place (click, drag, or use the arrow keys), or hit SHUFFLE. Yellow tiles can slide. Then let A* find the way back.']
+      : ['Now let A* solve it.', 'Press SOLVE IT. A* plans a shortest route back to the goal, and you’ll watch its to-do list (OPEN) and its checked list (CLOSED) change step by step.'];
+  }
+  if (!event) return ['A* is ready.', 'Press NEXT to see its first decision, or PLAY to watch it work on its own.'];
+  const titles = {
+    pop: 'Pick the most promising board',
+    expand: 'Look at every possible move',
+    score: 'Score each new board',
+    insert: 'File them in the to-do list',
+    goal: 'Solved!',
+  };
+  return [titles[event.phase] ?? 'Searching…', event.caption];
+}
+
 function renderChildren(event) {
   if (!refs.children) return;
   refs.children.innerHTML = '';
   if (!event || !['expand', 'score', 'insert'].includes(event.phase) || !event.children?.length) return;
   event.children.forEach((child) => {
+    const status = event.phase === 'score'
+      ? 'scoring'
+      : event.phase === 'insert'
+        ? (event.discarded?.some((node) => node.state === child.state) ? 'discarded' : 'inserted')
+        : 'plain';
     const item = document.createElement('article');
-    const status = event.phase === 'score' ? 'scoring' : event.phase === 'insert' ? (event.discarded?.some((node) => node.state === child.state) ? 'discarded' : 'inserted') : '';
-    item.className = `child-slip child-slip--${status}`;
-    item.innerHTML = `<span class="child-move">${child.move}</span>`;
+    item.className = `tq-child tq-child--${status}`;
+    item.innerHTML = `<span class="tq-child__move">${moveLabel(child.move)}</span>`;
     const childBoard = item.appendChild(document.createElement('div'));
     renderBoard(childBoard, child.state, { mini: true, distances: event.phase === 'score', targetState });
-    if (event.phase === 'score') childBoard.querySelector(`[data-tile="${child.tile}"]`)?.classList.add('tile-cell--score-focus');
-    item.insertAdjacentHTML('beforeend', `<b>g ${child.g} · h ${child.h} · f ${child.f}</b>${status === 'discarded' ? '<span class="seen-stamp">ALREADY SEEN</span>' : ''}`);
+    if (event.phase === 'score') childBoard.querySelector(`[data-tile="${child.tile}"]`)?.classList.add('tq-tile--focus');
+    item.insertAdjacentHTML('beforeend', `<b class="tq-child__f"><small>f</small>${child.f}</b><span class="tq-child__calc">g ${child.g} + h ${child.h}</span>${status === 'discarded' ? '<span class="tq-stamp">ALREADY SEEN</span>' : ''}`);
     refs.children.appendChild(item);
   });
 }
@@ -56,64 +86,67 @@ function highlightPseudo(phase) {
 
 function render() {
   const event = currentEvent();
-  const displayState = boardForDisplay();
+  const solved = Boolean(result?.solved && event?.phase === 'goal');
   const scorePhase = event?.phase === 'score';
-  renderBoard(mainBoard, displayState, { interactive: !result, distances: distancesVisible || scorePhase, targetState });
-  renderBoard(targetBoard, targetState, { mini: true, target: true, distances: false, targetState });
-  renderOpenList(refs.open, event?.open || [], event?.expanded?.state, event?.phase || '');
-  renderClosedList(refs.closed, event?.closed || []);
-  renderStepLog(refs.log, result?.events || [], eventIndex);
-  renderStats(refs.stats, result?.stats || {}, Boolean(result?.solved && event?.phase === 'goal'));
+  const shown = boardForDisplay();
+
+  app.dataset.mode = result ? 'watch' : 'play';
+  if (solved) app.dataset.solved = ''; else delete app.dataset.solved;
+
+  renderBoard(mainBoard, shown, { interactive: !result && !loading, distances: distancesVisible || scorePhase, targetState });
+  renderBoard(targetBoard, targetState, { mini: true, target: true });
+  renderOpenList(refs.open, event?.open || [], event?.expanded?.state, event?.phase || '', !event);
+  renderClosedList(refs.closed, event?.closed || [], !event);
+  renderStats(refs.stats, event
+    ? { checked: event.closed?.length ?? 0, waiting: event.open?.length ?? 0, depth: result?.stats?.depth, time: result?.stats?.time }
+    : {}, solved);
   renderChildren(event);
-  updateHeuristicNote(refs.note, HEURISTICS[heuristicName], currentState, targetState, event, distancesVisible || scorePhase);
+  updateHeuristicNote(refs.note, HEURISTICS[heuristicName], shown, targetState, event, distancesVisible || scorePhase);
   highlightPseudo(event?.phase || '');
 
+  const [headline, line] = copy(event);
+  refs.headline.textContent = headline;
+  refs.narration.textContent = notice?.text ?? line;
+  refs.narration.classList.toggle('is-warn', Boolean(notice));
+
   refs.moveCount.textContent = String(movesMade);
-  refs.moveCaption.textContent = event ? `${event.phase.toUpperCase()} · expansion ${event.expansion}` : `move ${movesMade} · drag or click a tile`;
   refs.speedLabel.textContent = `${speed}×`;
-  refs.pause.disabled = !timer;
+  refs.autoLabel.textContent = timer ? 'Pause' : 'Play';
+  refs.autoIcon.textContent = timer ? '❚❚' : '▶';
   refs.back.disabled = !result || eventIndex < 0;
-  refs.auto.querySelector('.action-button__arrow').textContent = timer ? '■' : '▶';
-  refs.activeRing.classList.toggle('is-visible', Boolean(event));
   refs.run.disabled = loading || isAtGoal() || Boolean(result);
-  refs.step.disabled = loading;
-  refs.micro.disabled = loading;
-  refs.auto.disabled = loading;
-  refs.reset.disabled = loading;
-  refs.run.title = isAtGoal() ? 'Make at least one move before solving.' : '';
-  refs.solveNote?.classList.toggle('is-visible', isAtGoal());
-  const solved = Boolean(result?.solved && event?.phase === 'goal');
-  if (solved && !announcedSolved) {
-    announcedSolved = true;
-    inkStampSound();
-  }
+  refs.run.title = isAtGoal() ? 'Scramble the board first.' : '';
+  [refs.step, refs.micro, refs.auto, refs.reset, refs.shuffle, refs.edit].forEach((button) => { button.disabled = loading; });
+
   document.body.classList.toggle('is-solved', solved);
+  if (solved && !announcedSolved) { announcedSolved = true; inkStampSound(); }
 }
 
-function setStatus(message, tone = 'ready') { refs.status.textContent = message; const dot = document.querySelector('.status-dot'); if (dot) dot.className = `status-dot status-dot--${tone}`; }
 function stopAuto() { if (timer) window.clearInterval(timer); timer = null; }
-function clearSearch(message = 'State changed · ready to build the search.') { stopAuto(); result = null; eventIndex = -1; announcedSolved = false; document.body.classList.remove('is-solved'); if (message) setStatus(message); render(); }
+function clearSearch() {
+  stopAuto();
+  result = null; eventIndex = -1; announcedSolved = false; notice = null;
+  render();
+}
 
 async function prepareSearch() {
   stopAuto();
-  if (isAtGoal()) { setStatus('The made state equals the goal · move a tile before solving.', 'warning'); render(); return false; }
-  loading = true;
-  setStatus('Sending the made board to the A* backend…', 'active');
+  if (isAtGoal()) { notice = { text: 'Scramble the board first. It already matches the goal.' }; render(); return false; }
+  loading = true; notice = null;
   render();
   try {
     const payload = await solvePuzzle([...currentState].map(Number), heuristicName);
     if (!payload.solvable) {
       result = null;
-      setStatus('This board is not solvable · change the made configuration and try again.', 'warning');
+      notice = { text: 'This arrangement can’t be solved. Edit the board and try again.' };
       return false;
     }
     result = toReplayResult(payload);
     eventIndex = -1;
-    setStatus('A* initialized · the first slip is ready to POP.', 'active');
     return true;
   } catch (error) {
     result = null;
-    setStatus(`Backend unavailable · ${error.message}`, 'warning');
+    notice = { text: `Couldn’t reach the A* backend (${error.message}). Is the Python server running?` };
     return false;
   } finally {
     loading = false;
@@ -122,12 +155,11 @@ async function prepareSearch() {
 }
 
 function advanceMicroNow() {
-  if (!result?.events?.length || eventIndex >= result.events.length - 1) { stopAuto(); return; }
+  if (!result?.events?.length || eventIndex >= result.events.length - 1) { stopAuto(); render(); return; }
   eventIndex += 1;
-  const event = currentEvent();
-  setStatus(event.caption, event.phase === 'goal' ? 'solved' : 'active');
+  notice = null;
   render();
-  if (event.phase === 'goal') stopAuto();
+  if (currentEvent().phase === 'goal') stopAuto();
 }
 
 async function advanceMicro() {
@@ -145,7 +177,7 @@ async function startAuto() {
   if (!result && !(await prepareSearch())) return;
   if (timer) { stopAuto(); render(); return; }
   timer = window.setInterval(advanceMicro, Math.max(260, 1320 - speed * 180));
-  setStatus('Auto is replaying one A* phase at a time…', 'active'); render();
+  render();
 }
 
 function backOneStep() {
@@ -154,30 +186,113 @@ function backOneStep() {
   let cursor = eventIndex - 1;
   while (cursor >= 0 && !['insert', 'goal'].includes(result.events[cursor].phase)) cursor -= 1;
   eventIndex = cursor;
-  setStatus('Back one expansion · replay the decision again.', 'active'); render();
+  notice = null;
+  render();
 }
 
+/* ---------- playing the puzzle ---------- */
+
 function moveState(state, tileIndex) { return getNeighbors(state).find((item) => item.from === tileIndex)?.state || null; }
+
 function tryMove(tileIndex) {
-  if (result) return false;
+  if (result || loading) return false;
+  const blank = currentState.indexOf('0');
   const next = moveState(currentState, tileIndex);
-  if (!next) { mainBoard.classList.remove('is-rejected'); void mainBoard.offsetWidth; mainBoard.classList.add('is-rejected'); paperCrumpleSound(); setStatus('Illegal move · only a tile beside the blank can slide.', 'warning'); return false; }
-  currentState = next; movesMade += 1; paperSlideSound(); clearSearch('A tile moved · the final configuration is still editable.'); animateMove(); return true;
+  if (!next) {
+    notice = { text: 'That tile isn’t next to the blank square, so it can’t slide. Only the yellow tiles can move.' };
+    render();
+    mainBoard.classList.remove('is-rejected'); void mainBoard.offsetWidth; mainBoard.classList.add('is-rejected');
+    paperCrumpleSound();
+    return false;
+  }
+  currentState = next; movesMade += 1;
+  paperSlideSound();
+  clearSearch();
+  animateMove(tileIndex, blank);
+  return true;
 }
-function handleBoardClick(event) { const tile = event.target.closest('.tile-cell:not(.tile-cell--empty)'); if (!tile || dragHandled) { dragHandled = false; return; } tryMove(Number(tile.dataset.index)); }
-function handlePointerDown(event) { const tile = event.target.closest('.tile-cell:not(.tile-cell--empty)'); if (!tile || result) return; dragState = { x: event.clientX, y: event.clientY, index: Number(tile.dataset.index) }; event.currentTarget.setPointerCapture?.(event.pointerId); }
-function handlePointerMove(event) { if (!dragState) return; const tile = event.currentTarget.querySelector(`[data-index="${dragState.index}"]`); if (!tile) return; const dx = event.clientX - dragState.x; const dy = event.clientY - dragState.y; if (Math.abs(dx) + Math.abs(dy) > 6) { tile.classList.add('is-dragging'); tile.style.setProperty('--drag-x', `${dx}px`); tile.style.setProperty('--drag-y', `${dy}px`); } }
-function handlePointerUp(event) { if (!dragState) return; const delta = Math.abs(event.clientX - dragState.x) + Math.abs(event.clientY - dragState.y); if (delta > 14) { dragHandled = true; tryMove(dragState.index); } event.currentTarget.querySelector(`[data-index="${dragState.index}"]`)?.classList.remove('is-dragging'); dragState = null; }
-function handleKeyboard(event) { if (result) return; const desired = { ArrowUp: 'UP', ArrowDown: 'DOWN', ArrowLeft: 'LEFT', ArrowRight: 'RIGHT' }[event.key]; if (!desired) return; event.preventDefault(); const neighbor = getNeighbors(currentState).find((item) => item.direction === desired); tryMove(neighbor?.from ?? -1); }
+
+function animateMove(from, to) {
+  const tile = mainBoard.querySelector(`[data-index="${to}"]`);
+  if (!tile) return;
+  tile.style.setProperty('--fx', String((from % 3) - (to % 3)));
+  tile.style.setProperty('--fy', String(Math.floor(from / 3) - Math.floor(to / 3)));
+  tile.classList.add('is-sliding');
+  tile.addEventListener('animationend', () => tile.classList.remove('is-sliding'), { once: true });
+}
+
+function handleBoardClick(event) {
+  if (event.detail !== 0) return; // mouse clicks are handled by pointerup; this is keyboard activation
+  const tile = event.target.closest('.tq-tile:not(.tq-tile--empty)');
+  if (tile) tryMove(Number(tile.dataset.index));
+}
+function handlePointerDown(event) {
+  if (result || loading) return;
+  const tile = event.target.closest('.tq-tile:not(.tq-tile--empty)');
+  if (!tile) return;
+  dragState = { x: event.clientX, y: event.clientY, index: Number(tile.dataset.index) };
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+}
+function handlePointerMove(event) {
+  if (!dragState) return;
+  const tile = mainBoard.querySelector(`[data-index="${dragState.index}"]`);
+  if (!tile) return;
+  const dx = event.clientX - dragState.x; const dy = event.clientY - dragState.y;
+  if (Math.abs(dx) + Math.abs(dy) > 6) {
+    tile.classList.add('is-dragging');
+    tile.style.setProperty('--drag-x', `${Math.max(-60, Math.min(60, dx))}px`);
+    tile.style.setProperty('--drag-y', `${Math.max(-60, Math.min(60, dy))}px`);
+  }
+}
+function handlePointerUp(event) {
+  if (!dragState) return;
+  const { index } = dragState;
+  dragState = null;
+  event.currentTarget.releasePointerCapture?.(event.pointerId);
+  mainBoard.querySelector('.is-dragging')?.classList.remove('is-dragging');
+  tryMove(index);
+}
+function handlePointerCancel() { dragState = null; mainBoard.querySelector('.is-dragging')?.classList.remove('is-dragging'); }
+
+// Arrow keys slide a tile in the arrow's direction (so the blank moves the opposite way).
+function handleKeyboard(event) {
+  if (result || loading || !document.body.classList.contains('has-started')) return;
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+  const blankDirection = { ArrowUp: 'DOWN', ArrowDown: 'UP', ArrowLeft: 'RIGHT', ArrowRight: 'LEFT' }[event.key];
+  if (!blankDirection) return;
+  event.preventDefault();
+  const neighbor = getNeighbors(currentState).find((item) => item.direction === blankDirection);
+  tryMove(neighbor?.from ?? -1);
+}
+
+function shuffleBoard() {
+  if (loading) return;
+  stopAuto();
+  let state = targetState; let previous = null;
+  const steps = 10 + Math.floor(Math.random() * 7); // easy scramble so the search stays readable
+  for (let i = 0; i < steps; i += 1) {
+    const options = getNeighbors(state).filter((n) => n.state !== previous);
+    const pick = options[Math.floor(Math.random() * options.length)];
+    previous = state; state = pick.state;
+  }
+  if (state === targetState) { shuffleBoard(); return; }
+  currentState = state; startState = state; movesMade = 0;
+  clearSearch();
+  animateShuffle();
+  paperCrumpleSound();
+}
+
 function resetToStart() {
   stopAuto();
-  currentState = startState;
-  movesMade = 0;
-  clearSearch('Back at the printed start state · paper rearranged and ready.');
-  animateShuffleToStart();
+  currentState = startState; movesMade = 0;
+  clearSearch();
+  animateShuffle();
   paperCrumpleSound();
-  window.setTimeout(inkStampSound, 130);
 }
+
+function editBoard() { stopAuto(); clearSearch(); }
+
+/* ---------- sound ---------- */
 
 function getAudioContext() {
   if (muted) return null;
@@ -233,33 +348,37 @@ function inkStampSound() {
   paperCrumpleSound();
 }
 
-function animateShuffleToStart() {
-  mainBoard.classList.remove('is-shuffling', 'is-stamping');
+function animateShuffle() {
+  mainBoard.classList.remove('is-shuffling');
   void mainBoard.offsetWidth;
-  mainBoard.classList.add('is-shuffling', 'is-stamping');
-  window.setTimeout(() => mainBoard.classList.remove('is-shuffling', 'is-stamping'), 780);
+  mainBoard.classList.add('is-shuffling');
+  window.setTimeout(() => mainBoard.classList.remove('is-shuffling'), 650);
 }
 
-function animateMove() {
-  mainBoard.classList.remove('is-moving');
-  void mainBoard.offsetWidth;
-  mainBoard.classList.add('is-moving');
-  window.setTimeout(() => mainBoard.classList.remove('is-moving'), 280);
-}
+/* ---------- wiring ---------- */
 
 refs.run.addEventListener('click', async () => { if (await prepareSearch()) await advanceStep(); });
 refs.step.addEventListener('click', advanceStep);
 refs.micro.addEventListener('click', advanceMicro);
 refs.auto.addEventListener('click', startAuto);
-refs.pause.addEventListener('click', () => { stopAuto(); setStatus('Paused · choose STEP or MICRO-STEP to continue.', 'active'); render(); });
 refs.reset.addEventListener('click', resetToStart);
-refs.back?.addEventListener('click', backOneStep);
-refs.heuristic.addEventListener('change', (event) => { heuristicName = event.target.value; clearSearch(`${HEURISTICS[heuristicName].label} selected · define h(n) before solving.`); });
+refs.shuffle.addEventListener('click', shuffleBoard);
+refs.edit.addEventListener('click', editBoard);
+refs.back.addEventListener('click', backOneStep);
+refs.heuristic.addEventListener('change', (event) => { heuristicName = event.target.value; clearSearch(); });
 refs.speed.addEventListener('input', (event) => { speed = Number(event.target.value); if (timer) { stopAuto(); startAuto(); } else render(); });
 refs.note.addEventListener('click', (event) => { if (event.target.closest('#distance-toggle')) { distancesVisible = !distancesVisible; render(); } });
 refs.soundToggle?.addEventListener('change', () => { muted = !refs.soundToggle.checked; });
-mainBoard.addEventListener('click', handleBoardClick); mainBoard.addEventListener('pointerdown', handlePointerDown); mainBoard.addEventListener('pointermove', handlePointerMove); mainBoard.addEventListener('pointerup', handlePointerUp); mainBoard.addEventListener('keydown', handleKeyboard);
-window.addEventListener('keydown', (event) => { if (event.key === 'Enter' && !['INPUT', 'SELECT', 'BUTTON'].includes(document.activeElement?.tagName)) refs.run.click(); });
+
+mainBoard.addEventListener('click', handleBoardClick);
+mainBoard.addEventListener('pointerdown', handlePointerDown);
+mainBoard.addEventListener('pointermove', handlePointerMove);
+mainBoard.addEventListener('pointerup', handlePointerUp);
+mainBoard.addEventListener('pointercancel', handlePointerCancel);
+window.addEventListener('keydown', handleKeyboard);
+window.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && document.body.classList.contains('has-started') && !['INPUT', 'SELECT', 'BUTTON', 'SUMMARY'].includes(document.activeElement?.tagName)) refs.run.click();
+});
 
 splashStart?.addEventListener('click', () => {
   if (document.body.classList.contains('is-transitioning')) return;
